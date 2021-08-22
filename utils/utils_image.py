@@ -829,6 +829,69 @@ def imresize_np(img, scale, antialiasing=True):
 
     return out_2.numpy()
 
+def drop_and_noise(image, sigma_d, percentage=0.8):
+    """
+    Drops *percentage* of pixels from the image and adds the noise of standard deviation stddev to the rest
+    Parameters
+    ----------
+    image - image to be degraded
+    sigma_d - standard deviation of the noise
+    percentage - percentage (0-1) of the pixels to be dropped
+    Returns
+    -------
+    y - degraded image
+    mask - boolean mask of dropped pixels (False, where it is dropped)
+    """
+    M, N = image.shape[:2]
+    n = N * M
+    p = math.floor(percentage * n)
+    image = np.cast[np.float32](image)
+
+    missing_pixels_ind = np.random.permutation(n)[:p]
+
+    mask = np.ones((M * N,), dtype=np.bool)
+    mask[missing_pixels_ind] = 0
+    mask = mask.reshape((M, N, 1))
+
+    maskf = np.cast[np.float32](mask)
+    y_clean = image * maskf
+
+    noise = np.random.normal(loc=0, scale=sigma_d, size=image.shape) * maskf
+    y = y_clean + noise
+
+    return y, mask
+
+def median_inpainting(y, mask):
+    """
+    Inpaints an image using repetitive application of a median filter
+    Parameters
+    ----------
+    y - degraded image with missing pixels
+    mask - boolean mask of the dropped pixels (False, where it is dropped)
+    Returns
+    -------
+    y0_median - estimate of the image
+    """
+    # grayscale only so far
+    M, N = y.shape[:2]
+    y0_median = np.copy(y)
+    y0_median[~mask] = np.nan
+    win_size = 0
+    bitmap_NaN = np.isnan(y0_median)
+    while np.count_nonzero(bitmap_NaN) > 0:
+        y0_median_prev = np.copy(y0_median)
+        win_size = win_size + 1
+        rows, cols, _ = np.where(bitmap_NaN)
+        for i in range(len(cols)):
+            row_start = max([1, rows[i] - win_size])
+            row_end = min([M, rows[i] + win_size])
+            col_start = max([1, cols[i] - win_size])
+            col_end = min([N, cols[i] + win_size])
+            median_val = np.nanmedian(y0_median_prev[row_start:row_end, col_start:col_end, :])
+            y0_median[rows[i], cols[i]] = median_val
+        bitmap_NaN = np.isnan(y0_median)
+    return y0_median
+
 
 if __name__ == '__main__':
     img = imread_uint('test.bmp',3)
