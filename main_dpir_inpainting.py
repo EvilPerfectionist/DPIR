@@ -6,6 +6,7 @@ import numpy as np
 from collections import OrderedDict
 
 import torch
+from torch import optim
 
 from utils import utils_model
 from utils import utils_mosaic
@@ -58,7 +59,7 @@ def main():
     model_name = 'drunet_gray'           # set denoiser, 'drunet_color' | 'ircnn_color'
     testset_name = 'set3c'               # set testing set,  'set18' | 'set24'
     x8 = True                            # set PGSE to boost performance, default: True
-    iter_num = 40                        # set number of iterations, default: 40 for demosaicing
+    iter_num = 80                        # set number of iterations, default: 40 for demosaicing
     modelSigma1 = 49                     # set sigma_1, default: 49
     modelSigma2 = max(0.6, noise_level_model*255.) # set sigma_2, default
     matlab_init = True
@@ -113,6 +114,12 @@ def main():
     logger.info('Model path: {:s}'.format(model_path))
     logger.info(L_path)
     L_paths = util.get_image_paths(L_path)
+    # L_paths = []
+    # M_paths = []
+    # L_paths.append('testsets/inpainting2/3ch.png')
+    # L_paths.append('testsets/inpainting2/new.png')
+    # M_paths.append('testsets/inpainting2/3ch_mask.png')
+    # M_paths.append('testsets/inpainting2/new_mask.png')
 
     test_results = OrderedDict()
     test_results['psnr'] = []
@@ -132,12 +139,16 @@ def main():
         #img_L = img_H * mask
         #util.imshow(img_L) if show_img else None
         img_L, mask = util.drop_and_noise(img_H, 255 * .01, 0.8)
+        # mask = util.imread_uint(M_paths[idx-1], n_channels=n_channels)
+        # img_L = img_H * mask
 
         # --------------------------------
         # (2) initialize x
         # --------------------------------
         x = util.median_inpainting(img_L, mask)
         x = util.uint2tensor4(x).to(device)
+        z = x
+        #x = util.uint2tensor4(img_L).to(device)
         y = util.uint2tensor4(img_L).to(device)
         print(x.shape)
         print(y.shape)
@@ -154,15 +165,35 @@ def main():
         # --------------------------------
         # (4) main iterations
         # --------------------------------
-
+        lr = 0.05
+        lr_step = 200
+        grad_des_iters = 200
+        lr_decay = 0.1
+        loss = torch.nn.MSELoss()
+    
         for i in range(iter_num):
 
             # --------------------------------
             # step 1, closed-form solution
             # --------------------------------
 
-            x = (y+rhos[i].float()*x).div(mask+rhos[i])
-
+            #x = (y+rhos[i].float()*z).div(mask+rhos[i])
+            # first_term = y - x * mask
+            # second_term = x - z_hat
+            x_k = x.clone().detach()
+            x_k.requires_grad = True
+            optimizer = optim.Adam([x_k], lr=0.03)
+            scheduler = optim.lr_scheduler.StepLR(optimizer, lr_step, lr_decay)
+            for it in range(grad_des_iters):
+                optimizer.zero_grad()
+                output = loss(y, x_k * mask) + rhos[i].float() * loss(x_k, z)
+                try:
+                    output.backward()
+                except Exception as e:
+                    print(e)
+                optimizer.step()
+                scheduler.step()
+            x = x_k.clone().detach()
             # --------------------------------
             # step 2, denoiser
             # --------------------------------
@@ -177,23 +208,23 @@ def main():
                     model = model.to(device)
                 former_idx = current_idx
 
-            x = torch.clamp(x, 0, 1)
+            z = torch.clamp(x, 0, 1)
             if x8:
-                x = util.augment_img_tensor4(x, i % 8)
+                z = util.augment_img_tensor4(z, i % 8)
 
             if 'drunet' in model_name:
-                x = torch.cat((x, sigmas[i].float().repeat(1, 1, x.shape[2], x.shape[3])), dim=1)
-                x = utils_model.test_mode(model, x, mode=2, refield=32, min_size=256, modulo=16)
-                # x = model(x)
+                z = torch.cat((z, sigmas[i].float().repeat(1, 1, z.shape[2], z.shape[3])), dim=1)
+                z = utils_model.test_mode(model, z, mode=2, refield=32, min_size=256, modulo=16)
+                # z = model(z)
             elif 'ircnn' in model_name:
-                x = model(x)
+                z = model(z)
 
             if x8:
                 if i % 8 == 3 or i % 8 == 5:
-                    x = util.augment_img_tensor4(x, 8 - i % 8)
+                    z = util.augment_img_tensor4(z, 8 - i % 8)
                 else:
-                    x = util.augment_img_tensor4(x, i % 8)
-
+                    z = util.augment_img_tensor4(z, i % 8)
+        x = z
         x[mask.to(torch.bool)] = y[mask.to(torch.bool)]
 
         # --------------------------------
