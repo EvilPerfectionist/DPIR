@@ -14,6 +14,8 @@ from utils import utils_logger
 from utils import utils_pnp as pnp
 from utils import utils_image as util
 
+from scipy import sparse
+from scipy.sparse.linalg import lsqr
 
 """
 Spyder (Python 3.7)
@@ -138,7 +140,8 @@ def main():
         #mask = np.repeat(mask, n_channels, axis=2)
         #img_L = img_H * mask
         #util.imshow(img_L) if show_img else None
-        img_L, mask = util.drop_and_noise(img_H, 255 * .01, 0.8)
+        img_L, mask, mask_float = util.drop_and_noise(img_H, 255 * .01, 0.8)
+        H_mat = sparse.diags((mask_float).ravel())
         # mask = util.imread_uint(M_paths[idx-1], n_channels=n_channels)
         # img_L = img_H * mask
 
@@ -147,7 +150,7 @@ def main():
         # --------------------------------
         x = util.median_inpainting(img_L, mask)
         x = util.uint2tensor4(x).to(device)
-        z = x
+        z = x.clone()
         #x = util.uint2tensor4(img_L).to(device)
         y = util.uint2tensor4(img_L).to(device)
         print(x.shape)
@@ -159,15 +162,15 @@ def main():
         # (3) get rhos and sigmas
         # --------------------------------
 
-        rhos, sigmas = pnp.get_rho_sigma(sigma=max(0.255/255., noise_level_img), iter_num=iter_num, modelSigma1=modelSigma1, modelSigma2=modelSigma2, w=1.0)
-        rhos, sigmas = torch.tensor(rhos).to(device), torch.tensor(sigmas).to(device)
+        rhos_np, sigmas_np = pnp.get_rho_sigma(sigma=max(0.255/255., noise_level_img), iter_num=iter_num, modelSigma1=modelSigma1, modelSigma2=modelSigma2, w=1.0)
+        rhos, sigmas = torch.tensor(rhos_np).to(device), torch.tensor(sigmas_np).to(device)
 
         # --------------------------------
         # (4) main iterations
         # --------------------------------
         lr = 0.05
         lr_step = 200
-        grad_des_iters = 200
+        grad_des_iters = 100
         lr_decay = 0.1
         loss = torch.nn.MSELoss()
     
@@ -176,24 +179,30 @@ def main():
             # --------------------------------
             # step 1, closed-form solution
             # --------------------------------
+            z_k = z.data.squeeze().float().cpu().numpy().ravel()
+            y_k = y.data.squeeze().float().cpu().numpy().ravel()
+            A_mat = H_mat.T @ H_mat + sparse.eye(height_ * width_) * rhos_np[i]
+            b_vec = (H_mat.T @ y_k + rhos_np[i] * z_k)
+            x_best, istop, itn, r1norm = lsqr(A_mat, b_vec, x0=z_k, atol=1e-6, btol=1e-6, iter_lim=400)[:4]
+            x = torch.from_numpy(np.ascontiguousarray(x_best.reshape(height_, width_, 1))).permute(2, 0, 1).float().unsqueeze(0).to(device)
 
             #x = (y+rhos[i].float()*z).div(mask+rhos[i])
             # first_term = y - x * mask
             # second_term = x - z_hat
-            x_k = x.clone().detach()
-            x_k.requires_grad = True
-            optimizer = optim.Adam([x_k], lr=0.03)
-            scheduler = optim.lr_scheduler.StepLR(optimizer, lr_step, lr_decay)
-            for it in range(grad_des_iters):
-                optimizer.zero_grad()
-                output = loss(y, x_k * mask) + rhos[i].float() * loss(x_k, z)
-                try:
-                    output.backward()
-                except Exception as e:
-                    print(e)
-                optimizer.step()
-                scheduler.step()
-            x = x_k.clone().detach()
+            #x_k = x.clone().detach()
+            # x.requires_grad = True
+            # optimizer = optim.Adam([x], lr=0.03)
+            # #scheduler = optim.lr_scheduler.StepLR(optimizer, lr_step, lr_decay)
+            # for it in range(grad_des_iters):
+            #     optimizer.zero_grad()
+            #     output = loss(y, x * mask) + rhos[i].float() * loss(x, z)
+            #     try:
+            #         output.backward()
+            #     except Exception as e:
+            #         print(e)
+            #     optimizer.step()
+            #     #scheduler.step()
+            # x = x.detach()
             # --------------------------------
             # step 2, denoiser
             # --------------------------------
