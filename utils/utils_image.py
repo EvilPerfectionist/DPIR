@@ -2,6 +2,8 @@ import os
 import math
 import random
 import numpy as np
+from scipy import sparse
+from scipy.sparse import coo_matrix
 import torch
 import cv2
 from torchvision.utils import make_grid
@@ -850,7 +852,9 @@ def drop_and_noise(image, sigma_d, percentage=0.8):
     missing_pixels_ind = np.random.permutation(n)[:p]
 
     mask = np.ones((M * N,), dtype=np.bool)
+    mask_float = np.ones((M * N,), dtype=np.float32)
     mask[missing_pixels_ind] = 0
+    mask_float[missing_pixels_ind] = 0
     mask = mask.reshape((M, N, 1))
 
     maskf = np.cast[np.float32](mask)
@@ -859,7 +863,7 @@ def drop_and_noise(image, sigma_d, percentage=0.8):
     noise = np.random.normal(loc=0, scale=sigma_d, size=image.shape) * maskf
     y = y_clean + noise
 
-    return y, mask
+    return y, mask, mask_float
 
 def median_inpainting(y, mask):
     """
@@ -892,6 +896,14 @@ def median_inpainting(y, mask):
         bitmap_NaN = np.isnan(y0_median)
     return y0_median
 
+def scipySparse2torch(coo):
+    values = coo.data
+    indices = np.vstack((coo.row, coo.col))
+    i = torch.LongTensor(indices)
+    v = torch.FloatTensor(values)
+    shape = coo.shape
+    res = torch.sparse_coo_tensor(i, v, torch.Size(shape))
+    return res
 
 if __name__ == '__main__':
     img = imread_uint('test.bmp',3)

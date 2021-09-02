@@ -61,7 +61,7 @@ def main():
     model_name = 'drunet_gray'           # set denoiser, 'drunet_color' | 'ircnn_color'
     testset_name = 'set3c'               # set testing set,  'set18' | 'set24'
     x8 = True                            # set PGSE to boost performance, default: True
-    iter_num = 80                        # set number of iterations, default: 40 for demosaicing
+    iter_num = 100                        # set number of iterations, default: 40 for demosaicing
     modelSigma1 = 49                     # set sigma_1, default: 49
     modelSigma2 = max(0.6, noise_level_model*255.) # set sigma_2, default
     matlab_init = True
@@ -148,15 +148,13 @@ def main():
         # --------------------------------
         # (2) initialize x
         # --------------------------------
-        x = util.median_inpainting(img_L, mask)
-        x = util.uint2tensor4(x).to(device)
+        #x = util.median_inpainting(img_L, mask)
+        # x = util.uint2tensor4(x).to(device)
+        # z = x.clone()
+        x = util.uint2tensor4(img_L).to(device)
         z = x.clone()
-        #x = util.uint2tensor4(img_L).to(device)
         y = util.uint2tensor4(img_L).to(device)
-        print(x.shape)
-        print(y.shape)
         mask = util.single2tensor4(mask.astype(np.float32)).to(device)
-        print(mask.shape)
 
         # --------------------------------
         # (3) get rhos and sigmas
@@ -180,10 +178,13 @@ def main():
             # step 1, closed-form solution
             # --------------------------------
             z_k = z.data.squeeze().float().cpu().numpy().ravel()
+            util.imshow(z_k.reshape(1, height_, width_), 'gray')
             y_k = y.data.squeeze().float().cpu().numpy().ravel()
+            y_k = img_L.ravel() / 255.0
             A_mat = H_mat.T @ H_mat + sparse.eye(height_ * width_) * rhos_np[i]
             b_vec = (H_mat.T @ y_k + rhos_np[i] * z_k)
             x_best, istop, itn, r1norm = lsqr(A_mat, b_vec, x0=z_k, atol=1e-6, btol=1e-6, iter_lim=400)[:4]
+            util.imshow(x_best.reshape(1, height_, width_), 'gray')
             x = torch.from_numpy(np.ascontiguousarray(x_best.reshape(height_, width_, 1))).permute(2, 0, 1).float().unsqueeze(0).to(device)
 
             #x = (y+rhos[i].float()*z).div(mask+rhos[i])
@@ -234,7 +235,7 @@ def main():
                 else:
                     z = util.augment_img_tensor4(z, i % 8)
         x = z
-        x[mask.to(torch.bool)] = y[mask.to(torch.bool)]
+        #x[mask.to(torch.bool)] = y[mask.to(torch.bool)]
 
         # --------------------------------
         # (4) img_E
