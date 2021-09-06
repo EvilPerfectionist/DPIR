@@ -17,6 +17,12 @@ from utils import utils_synthetic
 
 from scipy import sparse
 from scipy.sparse.linalg import lsqr
+import cvxpy as cp
+from cvxpy.atoms.affine.reshape import reshape as cp_reshape
+from cvxpy.atoms.affine.vstack import vstack as cp_vstack
+from cvxpy.expressions.expression import Expression
+from cvxpy.atoms.affine.sum import sum as cp_sum
+from cvxpy.atoms.norm import norm as cp_norm
 
 """
 Spyder (Python 3.7)
@@ -57,12 +63,12 @@ def main():
     # Preparation
     # ----------------------------------------
 
-    noise_level_img = 0/255.0            # set AWGN noise level for LR image, default: 0
+    noise_level_img = 0.0/255.0            # set AWGN noise level for LR image, default: 0
     noise_level_model = noise_level_img  # set noise level of model, default: 0
     model_name = 'drunet_gray'           # set denoiser, 'drunet_color' | 'ircnn_color'
     testset_name = 'set3c'               # set testing set,  'set18' | 'set24'
     x8 = True                            # set PGSE to boost performance, default: True
-    iter_num = 60                        # set number of iterations, default: 40 for demosaicing
+    iter_num = 40                        # set number of iterations, default: 40 for demosaicing
     modelSigma1 = 49                     # set sigma_1, default: 49
     modelSigma2 = max(0.6, noise_level_model*255.) # set sigma_2, default
     matlab_init = True
@@ -150,6 +156,10 @@ def main():
         flow_x = flow_x * center_mask
         H_mat, H_mat_T = utils_synthetic.calc_A_T(flow_y, flow_x, smooth=False)
         b = H_mat @ img_H.ravel()
+        # iwe_abs = np.abs(img_iwe)
+        # ret, binary_img = cv2.threshold(iwe_abs, 0.0, 1, cv2.THRESH_BINARY)
+        # binary_mask = sparse.diags((binary_img).ravel())
+        # H_mat = binary_mask @ H_mat
         # b_tmp = b / 255.0
         # x_init = np.ones(height_ * width_)
         # x_best, istop, itn, r1norm = lsqr(H_mat, b_tmp, x0=x_init, atol=1e-6, btol=1e-6, iter_lim=400, show=True)[:4]
@@ -173,8 +183,23 @@ def main():
         # x = util.uint2tensor4(x).to(device)
         # z = x.clone()
         #x = util.uint2tensor4(img_L).to(device)
-        #img_L = img_iwe * center_mask# / flow_mag
-        img_init = np.zeros_like(img_L)
+        img_L = img_iwe * center_mask / flow_mag * 4e3
+        # U = cp.Variable(shape=(height_, width_))
+        # U_mtx = Expression.cast_to_const(U)
+        # U_ = cp_reshape(U, (height_*width_, 1), order='C')
+        # diffs = [
+        #     U_mtx[0:height_-1, 1:width_] - U_mtx[0:height_-1, 0:width_-1],
+        #     U_mtx[1:height_, 0:width_-1] - U_mtx[0:height_-1, 0:width_-1]
+        # ]
+        # length = diffs[0].shape[0]*diffs[1].shape[1]
+        # stacked = cp_vstack([cp_reshape(diff, (1, length)) for diff in diffs])
+        # cost = cp.norm2(H_mat @ U_ - b.reshape(-1, 1) / 255.0)**2 + 0.003 * cp_sum(cp_norm(stacked, p=2, axis=0))
+        # obj = cp.Minimize(cost)
+        # prob = cp.Problem(obj)
+        # prob.solve(verbose=True, eps = 1e-3, solver=cp.SCS, max_iters=100, warm_start=True)
+        # img_init = U.value
+        # util.imshow(img_init.reshape(1, height_, width_),cbar=True)
+        img_init = np.ones_like(img_L) * 255.0 / 2.0
         x = util.uint2tensor4(img_init).to(device)
         # x = torch.from_numpy(np.ascontiguousarray(img_init)).permute(2, 0, 1).float().unsqueeze(0).to(device)
         z = x.clone()
@@ -186,7 +211,7 @@ def main():
         # (3) get rhos and sigmas
         # --------------------------------
 
-        rhos_np, sigmas_np = pnp.get_rho_sigma(sigma=max(0.255/255., noise_level_img), iter_num=iter_num, modelSigma1=modelSigma1, modelSigma2=modelSigma2, w=1.0)
+        rhos_np, sigmas_np = pnp.get_rho_sigma(sigma=max(0.255/255., noise_level_img) * 1.0, iter_num=iter_num, modelSigma1=modelSigma1, modelSigma2=modelSigma2, w=1.0)
         rhos, sigmas = torch.tensor(rhos_np).to(device), torch.tensor(sigmas_np).to(device)
 
         # --------------------------------
@@ -205,7 +230,14 @@ def main():
             # --------------------------------
             z_k = z.data.squeeze().float().cpu().numpy().ravel()
             #z_k = cv2.normalize(z_k, None, 0.0, 1.0, cv2.NORM_MINMAX).ravel()
-            util.imshow(z_k.reshape(1, height_, width_), cbar=True)
+            #util.imshow(z_k.reshape(1, height_, width_), cbar=True)
+            z_k_img = cv2.normalize(z_k.reshape(height_, width_), None, 0, 255, cv2.NORM_MINMAX)
+            z_k_img = z_k_img.astype(np.uint8)
+            folder_name = os.path.join(E_path, "z_ks")
+            if not os.path.exists(folder_name):
+                os.makedirs(folder_name)
+            z_k_name = "%04d.png" % i
+            cv2.imwrite(os.path.join(folder_name, z_k_name), z_k_img)
             y_k = y.data.squeeze().float().cpu().numpy().ravel()
             y_k = img_L.ravel() / 255.0
             # y_k = img_L.ravel()
@@ -214,7 +246,14 @@ def main():
             x_best, istop, itn, r1norm = lsqr(A_mat, b_vec, x0=z_k, atol=1e-6, btol=1e-6, iter_lim=400)[:4]
             #x_best = cv2.normalize(x_best, None, 0.0, 1.0, cv2.NORM_MINMAX).ravel()
             #x_best = x_best - np.amin(x_best)
-            util.imshow(x_best.reshape(1, height_, width_),cbar=True)
+            #util.imshow(x_best.reshape(1, height_, width_),cbar=True)
+            x_k_img = cv2.normalize(x_best.reshape(height_, width_), None, 0, 255, cv2.NORM_MINMAX)
+            x_k_img = x_k_img.astype(np.uint8)
+            folder_name = os.path.join(E_path, "x_ks")
+            if not os.path.exists(folder_name):
+                os.makedirs(folder_name)
+            x_k_name = "%04d.png" % i
+            cv2.imwrite(os.path.join(folder_name, x_k_name), x_k_img)
             x = torch.from_numpy(np.ascontiguousarray(x_best.reshape(height_, width_, 1))).permute(2, 0, 1).float().unsqueeze(0).to(device)
 
             #x = (y+rhos[i].float()*z).div(mask+rhos[i])
@@ -273,6 +312,7 @@ def main():
         # --------------------------------
 
         img_E = util.tensor2uint(x)
+        util.imshow(img_E.reshape(1, height_, width_),cbar=True)
         if n_channels == 1:
             img_L = img_L.squeeze()
             img_H = img_H.squeeze()
