@@ -47,10 +47,10 @@ mosaic_lap = mosaic_gradx2[:1023,:2047] + mosaic_grady2[:1023,:2047]
 # plt.imshow(img_lap, cmap='gray')
 # plt.show() 
 #mosaic_lap = mosaic_lap[256:768, 768:1280]
-mosaic_lap = mosaic_lap[200:800, 500:1500]
+#mosaic_lap = mosaic_lap[200:800, 500:1500]
 
 #Nx, Ny = (512, 512)
-Nx, Ny = mosaic_lap.shape
+Ny, Nx = mosaic_lap.shape
 # Nx, Ny = img.shape
 # grad_x = cv2.Sobel(img, cv2.CV_64F, 1,0)
 # grad_y = cv2.Sobel(img, cv2.CV_64F, 0,1)
@@ -61,20 +61,28 @@ Nx, Ny = mosaic_lap.shape
 lap_F = dct2(mosaic_lap)
 kx = np.arange(Nx)
 ky = np.arange(Ny)
-mwx = 2.0 * (np.cos((np.pi * i) / (Nx - 1)))
-for i in range(Nx):
-    for j in range(Ny):
-        factor = 2.0 * (np.cos((np.pi * i) / (Nx - 1)) + np.cos((np.pi * j) / (Ny - 1)) - 2.0)
+factor_x = 2.0 * (np.cos((np.pi * kx) / Nx) - 1.0)
+factor_y = 2.0 * (np.cos((np.pi * ky) / Ny) - 1.0)
+mwx, mwy = np.meshgrid(factor_x, factor_y)
+factor_div = mwx + mwy
+factor_div = np.where(factor_div == 0.0, 1.0, factor_div)
+lap_F2 = lap_F / factor_div
+lap_F2[0, 0] = 0.0
+for i in range(Ny):
+    for j in range(Nx):
+        factor = 2.0 * (np.cos((np.pi * i) / (Ny - 1)) + np.cos((np.pi * j) / (Nx - 1)) - 2.0)
         if factor != 0.0:
             lap_F[i, j] /= factor
         else:
             lap_F[i, j] = 0.0
 # im1 = idct2(imF)
 mosaic_rec = idct2(lap_F)
+mosaic_rec2 = idct2(lap_F2)
 mosaic_rec = normalizeRobust(mosaic_rec, 1.0)
+mosaic_rec2 = normalizeRobust(mosaic_rec2, 1.0)
 #img_rec = img_rec.astype(np.uint8)
 
 plt.gray()
 plt.subplot(121), plt.imshow(mosaic_rec), plt.axis('off'), plt.title('original image', size=20)
-# plt.subplot(122), plt.imshow(im1), plt.axis('off'), plt.title('reconstructed image (DCT+IDCT)', size=20)
+plt.subplot(122), plt.imshow(mosaic_rec2), plt.axis('off'), plt.title('reconstructed image (DCT+IDCT)', size=20)
 plt.show()
