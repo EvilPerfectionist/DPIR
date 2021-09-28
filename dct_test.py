@@ -47,7 +47,7 @@ mosaic_lap = mosaic_gradx2[:1023,:2047] + mosaic_grady2[:1023,:2047]
 # plt.imshow(img_lap, cmap='gray')
 # plt.show() 
 #mosaic_lap = mosaic_lap[256:768, 768:1280]
-#mosaic_lap = mosaic_lap[200:800, 500:1500]
+mosaic_lap = mosaic_lap[200:800, 500:1500]
 
 #Nx, Ny = (512, 512)
 Ny, Nx = mosaic_lap.shape
