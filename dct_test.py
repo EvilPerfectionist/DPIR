@@ -1,4 +1,4 @@
-from scipy.fftpack import dct, idct
+from scipy.fft import dct, idct
 import cv2
 import numpy as np
 import matplotlib.pylab as plt
@@ -34,9 +34,12 @@ mosaic_gradx = cv2.imread('mosaic_gradx.exr', cv2.IMREAD_UNCHANGED)
 mosaic_grady = cv2.imread('mosaic_grady.exr', cv2.IMREAD_UNCHANGED)
 
 # img_lap = np.zeros_like(img_gradx)
-mosaic_gradx2 = mosaic_gradx[:, 1:] - mosaic_gradx[:, :-1]
-mosaic_grady2 = mosaic_grady[1:, :] - mosaic_grady[:-1, :]
-mosaic_lap = mosaic_gradx2[:1023,:2047] + mosaic_grady2[:1023,:2047]
+# mosaic_gradx2 = mosaic_gradx[:, 1:] - mosaic_gradx[:, :-1]
+# mosaic_grady2 = mosaic_grady[1:, :] - mosaic_grady[:-1, :]
+# mosaic_lap = mosaic_gradx2[:1023,:2047] + mosaic_grady2[:1023,:2047]
+mosaic_gradx2 = np.roll(mosaic_gradx, -1, axis=1) - mosaic_gradx
+mosaic_grady2 = np.roll(mosaic_grady, -1, axis=0) - mosaic_grady
+mosaic_lap = mosaic_gradx2 + mosaic_grady2
 
 # img_gradx = normalizeRobust(img_gradx, 1.0)
 # img_grady = normalizeRobust(img_grady, 1.0)
@@ -47,7 +50,7 @@ mosaic_lap = mosaic_gradx2[:1023,:2047] + mosaic_grady2[:1023,:2047]
 # plt.imshow(img_lap, cmap='gray')
 # plt.show() 
 #mosaic_lap = mosaic_lap[256:768, 768:1280]
-mosaic_lap = mosaic_lap[200:800, 500:1500]
+mosaic_lap = mosaic_lap[50:-50, 60:-50]
 
 #Nx, Ny = (512, 512)
 Ny, Nx = mosaic_lap.shape
