@@ -70,6 +70,7 @@ mwx, mwy = np.meshgrid(factor_x, factor_y)
 factor_div = mwx + mwy
 factor_div = np.where(factor_div == 0.0, 1.0, factor_div)
 lap_F2 = lap_F / factor_div
+print(lap_F2[0, 0])
 lap_F2[0, 0] = 0.0
 for i in range(Ny):
     for j in range(Nx):
@@ -87,5 +88,7 @@ mosaic_rec2 = normalizeRobust(mosaic_rec2, 1.0)
 
 plt.gray()
 plt.subplot(121), plt.imshow(mosaic_rec), plt.axis('off'), plt.title('original image', size=20)
+plt.colorbar()
 plt.subplot(122), plt.imshow(mosaic_rec2), plt.axis('off'), plt.title('reconstructed image (DCT+IDCT)', size=20)
+plt.colorbar()
 plt.show()
