@@ -10,19 +10,31 @@ mosaic_gradx2 = np.roll(mosaic_gradx, -1, axis=1) - mosaic_gradx
 mosaic_grady2 = np.roll(mosaic_grady, -1, axis=0) - mosaic_grady
 mosaic_lap = mosaic_gradx2 + mosaic_grady2
 
+laplacian = np.array([[0, 1, 0],
+                      [1,-4, 1],
+                      [0, 1, 0]])
+PSF = np.zeros_like(mosaic_gradx)
+PSF[:3,:3] = laplacian
+PSF = np.roll(PSF, shift=(-1, -1), axis=(0, 1))
+OTF = fft2(PSF)
+OTF_conj = np.conj(OTF)
+OTF2 = np.power(np.abs(OTF), 2)
+
 Ny, Nx = mosaic_lap.shape
 
-lap_F = fft2(mosaic_lap / 90.0)
+lap_F = fft2(mosaic_lap / 30.0)
 
 kx = fftfreq(Nx)
 ky = fftfreq(Ny)
 factor_x = 2.0 * (np.cos(np.pi * kx) - 1.0)
 factor_y = 2.0 * (np.cos(np.pi * ky) - 1.0)
 mwx, mwy = np.meshgrid(factor_x, factor_y)
-factor_div = mwx + mwy
+#factor_div = mwx + mwy
+factor_div = OTF
 factor_div = np.where(factor_div == 0.0, 1.0, factor_div)
 lap_F2 = lap_F / factor_div
-lap_F2[0, 0] = (1024.0 * 2048.0) / 2.0
+# lap_F2 = lap_F * OTF_conj / (1e-6 + OTF2)
+lap_F2[0, 0] = (1024.0 * 2048.0) / 2.0 
 
 mosaic_rec = np.real(ifft2(lap_F2))
 # mosaic_rec = np.fft.ifft2(lap_F2)
